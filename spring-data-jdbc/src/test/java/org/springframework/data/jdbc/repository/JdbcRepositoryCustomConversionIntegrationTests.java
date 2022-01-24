@@ -50,6 +50,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * @author Jens Schauder
  * @author Sanghyuk Jung
+ * @author Chirag Tailor
  */
 @ContextConfiguration
 @Transactional
@@ -76,7 +77,8 @@ public class JdbcRepositoryCustomConversionIntegrationTests {
 		@Bean
 		JdbcCustomConversions jdbcCustomConversions() {
 			return new JdbcCustomConversions(asList(StringToBigDecimalConverter.INSTANCE, BigDecimalToString.INSTANCE,
-					CustomIdReadingConverter.INSTANCE, CustomIdWritingConverter.INSTANCE));
+					CustomIdReadingConverter.INSTANCE, CustomIdWritingConverter.INSTANCE,
+					IntValuedEnumToIntegerConverter.INSTANCE, IntegerToIntValuedEnumConverter.INSTANCE));
 		}
 	}
 
@@ -143,6 +145,20 @@ public class JdbcRepositoryCustomConversionIntegrationTests {
 		});
 	}
 
+	@Test // DATAJDBC-1107
+	void saveAndLoadEntityWithCustomEnumConverter() {
+
+		EntityWithStringyBigDecimal entity = new EntityWithStringyBigDecimal();
+		entity.intValuedEnum = IntValuedEnum.SECOND;
+
+		repository.save(entity);
+
+		EntityWithStringyBigDecimal reloaded = repository.findById(entity.id).get();
+
+		IntValuedEnum intValuedEnum = reloaded.intValuedEnum;
+		assertThat(intValuedEnum).isEqualTo(IntValuedEnum.SECOND);
+	}
+
 	interface EntityWithBooleanRepository extends CrudRepository<EntityWithStringyBigDecimal, CustomId> {}
 
 	private static class EntityWithStringyBigDecimal {
@@ -150,6 +166,7 @@ public class JdbcRepositoryCustomConversionIntegrationTests {
 		@Id CustomId id;
 		String stringyNumber;
 		OtherEntity reference;
+		IntValuedEnum intValuedEnum;
 	}
 
 	private static class CustomId {
@@ -165,6 +182,52 @@ public class JdbcRepositoryCustomConversionIntegrationTests {
 
 		@Id CustomId id;
 		Date created;
+	}
+
+	private enum IntValuedEnum {
+
+		FIRST(1), SECOND(2);
+
+		private final int value;
+
+		IntValuedEnum(int value) {
+			this.value = value;
+		}
+
+		int getValue() {
+			return value;
+		}
+
+		static IntValuedEnum fromValue(int value) {
+			for (IntValuedEnum e : values()) {
+				if (e.getValue() == value) {
+					return e;
+				}
+			}
+			throw new IllegalArgumentException();
+		}
+	}
+
+	@WritingConverter
+	enum IntValuedEnumToIntegerConverter implements Converter<IntValuedEnum, JdbcValue> {
+
+		INSTANCE;
+
+		@Override
+		public JdbcValue convert(IntValuedEnum source) {
+			return JdbcValue.of(source.getValue(), JDBCType.INTEGER);
+		}
+	}
+
+	@ReadingConverter
+	enum IntegerToIntValuedEnumConverter implements Converter<Integer, IntValuedEnum> {
+
+		INSTANCE;
+
+		@Override
+		public IntValuedEnum convert(Integer source) {
+			return IntValuedEnum.fromValue(source);
+		}
 	}
 
 	@WritingConverter
