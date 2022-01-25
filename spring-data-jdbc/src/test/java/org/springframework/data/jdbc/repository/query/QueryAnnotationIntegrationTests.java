@@ -54,23 +54,26 @@ import org.springframework.transaction.annotation.Transactional;
  * @author Dennis Effing
  */
 @Transactional
-@ActiveProfiles("hsql")
+@ActiveProfiles(value = { "postgres", "hsql", "h2" })
 @ExtendWith(SpringExtension.class)
-public class QueryAnnotationHsqlIntegrationTests {
+public class QueryAnnotationIntegrationTests {
 
 	@Configuration
 	@Import(TestConfiguration.class)
 	@EnableJdbcRepositories(considerNestedRepositories = true,
-			includeFilters = @ComponentScan.Filter(value = DummyEntityRepository.class, type = FilterType.ASSIGNABLE_TYPE))
+			includeFilters = { @ComponentScan.Filter(value = DummyEntityRepository.class, type = FilterType.ASSIGNABLE_TYPE),
+					@ComponentScan.Filter(value = EnumEntityRepository.class, type = FilterType.ASSIGNABLE_TYPE), })
 	static class Config {
 
 		@Bean
 		Class<?> testClass() {
-			return QueryAnnotationHsqlIntegrationTests.class;
+			return QueryAnnotationIntegrationTests.class;
 		}
 	}
 
 	@Autowired DummyEntityRepository repository;
+
+	@Autowired EnumEntityRepository enumEntityRepository;
 
 	@Test // DATAJDBC-164
 	public void executeCustomQueryWithoutParameter() {
@@ -272,6 +275,21 @@ public class QueryAnnotationHsqlIntegrationTests {
 		assertThat(repository.immutableTuple()).isEqualTo(new DummyEntityRepository.ImmutableTuple("one", "two", 3));
 	}
 
+	@Test // GH630
+	void executeCustomFindByQueryWithEnumParameter() {
+		EnumEntity enumEntity1 = new EnumEntity();
+		enumEntity1.dummyEnum = DummyEnum.FIRST;
+		EnumEntity enumEntity2 = new EnumEntity();
+		enumEntity2.dummyEnum = DummyEnum.SECOND;
+		enumEntityRepository.save(enumEntity1);
+		enumEntity2 = enumEntityRepository.save(enumEntity2);
+
+		List<EnumEntity> result = enumEntityRepository.findByDummyEnum(DummyEnum.SECOND);
+		assertThat(result).hasSize(1);
+		assertThat(result.get(0).id).isEqualTo(enumEntity2.id);
+		assertThat(result.get(0).dummyEnum).isEqualTo(enumEntity2.dummyEnum);
+	}
+
 	private DummyEntity dummyEntity(String name) {
 
 		DummyEntity entity = new DummyEntity();
@@ -284,6 +302,18 @@ public class QueryAnnotationHsqlIntegrationTests {
 		@Id Long id;
 
 		String name;
+	}
+
+	private static class EnumEntity {
+
+		@Id Long id;
+
+		DummyEnum dummyEnum;
+	}
+
+	private enum DummyEnum {
+
+		FIRST, SECOND
 	}
 
 	private interface DummyEntityRepository extends CrudRepository<DummyEntity, Long> {
@@ -353,5 +383,12 @@ public class QueryAnnotationHsqlIntegrationTests {
 			String two;
 			int three;
 		}
+	}
+
+	private interface EnumEntityRepository extends CrudRepository<EnumEntity, Long> {
+
+		// GH630
+		@Query("SELECT t.* FROM ENUM_ENTITY t WHERE t.dummy_enum = :dummyEnum")
+		List<EnumEntity> findByDummyEnum(@Param("dummyEnum") DummyEnum dummyEnum);
 	}
 }
